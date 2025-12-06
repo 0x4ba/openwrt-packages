@@ -105,27 +105,12 @@ end
 -- ========================================
 mapping = m:section(TypedSection, "map", translate("Temperature to Fan Speed Mapping"))
 mapping.addremove = true
-mapping.anonymous = false
+mapping.anonymous = true
 mapping.template = "cbi/tblsection"
 mapping.description = translate("Configure temperature thresholds and corresponding fan speeds. " ..
                                  "When the temperature reaches or exceeds a threshold, " ..
                                  "the corresponding PWM value is applied. " ..
                                  "Entries are automatically sorted by temperature.")
-
--- 自定义创建函数：自动生成唯一名称
-function mapping.create(self, section)
-	local timestamp = os.time()
-	local section_name = "map_" .. timestamp
-
-	-- 确保名称唯一
-	while self.map:get(section_name) do
-		timestamp = timestamp + 1
-		section_name = "map_" .. timestamp
-	end
-
-	self.map:set(section_name, "map")
-	return section_name
-end
 
 -- 温度阈值
 temp = mapping:option(Value, "temperature", translate("Temperature (°C)"))
