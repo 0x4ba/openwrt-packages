@@ -106,6 +106,7 @@ end
 mapping = m:section(TypedSection, "map", translate("Temperature to Fan Speed Mapping"))
 mapping.addremove = true
 mapping.anonymous = true
+mapping.sortable = true
 mapping.template = "cbi/tblsection"
 mapping.description = translate("Configure temperature thresholds and corresponding fan speeds. " ..
                                  "When the temperature reaches or exceeds a threshold, " ..
