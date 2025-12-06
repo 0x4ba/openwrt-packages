@@ -1,0 +1,4 @@
+config fan_control 'fan_control'
+    option enabled '0'
+    option sensor ''
+    option fan ''
