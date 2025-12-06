@@ -234,71 +234,98 @@ input:checked + .slider:before {
 </div>
 
 <script type="text/javascript">
-var xhr = new XMLHttpRequest();
-
 function loadHwmonDevices() {
+    var xhr = new XMLHttpRequest();
     xhr.open('GET', '<%=url('admin/services/fan_control/get_devices')%>', true);
     xhr.onload = function() {
         if (xhr.status === 200) {
-            var data = JSON.parse(xhr.responseText);
+            try {
+                var data = JSON.parse(xhr.responseText);
 
-            var sensorSelect = document.getElementById('sensor');
-            var fanSelect = document.getElementById('fan');
+                var sensorSelect = document.getElementById('sensor');
+                var fanSelect = document.getElementById('fan');
 
-            sensorSelect.innerHTML = '<option value=""><%:-- Please select --%></option>';
-            fanSelect.innerHTML = '<option value=""><%:-- Please select --%></option>';
+                sensorSelect.innerHTML = '<option value=""><%:-- Please select --%></option>';
+                fanSelect.innerHTML = '<option value=""><%:-- Please select --%></option>';
 
-            for (var path in data.sensors) {
-                var option = document.createElement('option');
-                option.value = path;
-                option.textContent = data.sensors[path];
-                sensorSelect.appendChild(option);
+                for (var path in data.sensors) {
+                    var option = document.createElement('option');
+                    option.value = path;
+                    option.textContent = data.sensors[path];
+                    sensorSelect.appendChild(option);
+                }
+
+                for (var path in data.fans) {
+                    var option = document.createElement('option');
+                    option.value = path;
+                    option.textContent = data.fans[path];
+                    fanSelect.appendChild(option);
+                }
+            } catch (e) {
+                console.error('Failed to load devices:', e);
+                showStatus('<%:Failed to load devices%>', 'error');
             }
-
-            for (var path in data.fans) {
-                var option = document.createElement('option');
-                option.value = path;
-                option.textContent = data.fans[path];
-                fanSelect.appendChild(option);
-            }
+        } else {
+            console.error('HTTP error:', xhr.status);
+            showStatus('<%:Failed to load devices%> (HTTP ' + xhr.status + ')', 'error');
         }
+    };
+    xhr.onerror = function() {
+        console.error('Network error loading devices');
+        showStatus('<%:Network error loading devices%>', 'error');
     };
     xhr.send();
 }
 
 function loadConfig() {
+    var xhr = new XMLHttpRequest();
     xhr.open('GET', '<%=url('admin/services/fan_control/get_config')%>', true);
     xhr.onload = function() {
         if (xhr.status === 200) {
-            var data = JSON.parse(xhr.responseText);
-            document.getElementById('enabled').checked = data.enabled === '1';
-            document.getElementById('sensor').value = data.sensor || '';
-            document.getElementById('fan').value = data.fan || '';
+            try {
+                var data = JSON.parse(xhr.responseText);
+                document.getElementById('enabled').checked = data.enabled === '1';
+                document.getElementById('sensor').value = data.sensor || '';
+                document.getElementById('fan').value = data.fan || '';
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
         }
+    };
+    xhr.onerror = function() {
+        console.error('Network error loading config');
     };
     xhr.send();
 }
 
 function loadMappings() {
+    var xhr = new XMLHttpRequest();
     xhr.open('GET', '<%=url('admin/services/fan_control/list_map')%>', true);
     xhr.onload = function() {
         if (xhr.status === 200) {
-            var data = JSON.parse(xhr.responseText);
-            var tbody = document.getElementById('mapping-tbody');
-            tbody.innerHTML = '';
+            try {
+                var data = JSON.parse(xhr.responseText);
+                var tbody = document.getElementById('mapping-tbody');
+                tbody.innerHTML = '';
 
-            data.maps.forEach(function(map) {
-                var row = tbody.insertRow();
-                row.insertCell(0).textContent = map.temperature;
-                row.insertCell(1).textContent = map.speed;
-                var actionCell = row.insertCell(2);
-                var deleteBtn = document.createElement('button');
-                deleteBtn.className = 'btn btn-danger';
-                deleteBtn.textContent = '<%:Delete%>';
-                deleteBtn.onclick = function() { deleteMapping(map.idx); };
-                actionCell.appendChild(deleteBtn);
-            });
+                data.maps.forEach(function(map) {
+                    var row = tbody.insertRow();
+                    row.insertCell(0).textContent = map.temperature;
+                    row.insertCell(1).textContent = map.speed;
+                    var actionCell = row.insertCell(2);
+                    var deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'btn btn-danger';
+                    deleteBtn.textContent = '<%:Delete%>';
+                    deleteBtn.onclick = function() { deleteMapping(map.idx); };
+                    actionCell.appendChild(deleteBtn);
+                });
+            } catch (e) {
+                console.error('Failed to load mappings:', e);
+            }
         }
+    };
+    xhr.onerror = function() {
+        console.error('Network error loading mappings');
     };
     xhr.send();
 }
@@ -310,6 +337,7 @@ function saveConfig() {
 
     var params = 'enabled=' + enabled + '&sensor=' + encodeURIComponent(sensor) + '&fan=' + encodeURIComponent(fan);
 
+    var xhr = new XMLHttpRequest();
     xhr.open('POST', '<%=url('admin/services/fan_control/save_config')%>', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
@@ -318,6 +346,9 @@ function saveConfig() {
         } else {
             showStatus('<%:Failed to save configuration%>', 'error');
         }
+    };
+    xhr.onerror = function() {
+        showStatus('<%:Network error saving configuration%>', 'error');
     };
     xhr.send(params);
 }
@@ -343,20 +374,30 @@ function addMapping() {
 
     var params = 'temperature=' + temp + '&speed=' + speed;
 
+    var xhr = new XMLHttpRequest();
     xhr.open('POST', '<%=url('admin/services/fan_control/add_map')%>', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
         if (xhr.status === 200) {
-            var data = JSON.parse(xhr.responseText);
-            if (data.success) {
-                document.getElementById('new-temp').value = '';
-                document.getElementById('new-speed').value = '';
-                loadMappings();
-                showStatus('<%:Mapping added successfully!%>', 'success');
-            } else {
-                showStatus('<%:Failed to add mapping:%> ' + data.error, 'error');
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (data.success) {
+                    document.getElementById('new-temp').value = '';
+                    document.getElementById('new-speed').value = '';
+                    loadMappings();
+                    showStatus('<%:Mapping added successfully!%>', 'success');
+                } else {
+                    showStatus('<%:Failed to add mapping:%> ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                showStatus('<%:Failed to add mapping%>', 'error');
             }
+        } else {
+            showStatus('<%:Failed to add mapping%>', 'error');
         }
+    };
+    xhr.onerror = function() {
+        showStatus('<%:Network error adding mapping%>', 'error');
     };
     xhr.send(params);
 }
@@ -366,15 +407,21 @@ function deleteMapping(idx) {
         return;
     }
 
+    var xhr = new XMLHttpRequest();
     xhr.open('POST', '<%=url('admin/services/fan_control/delete_map')%>', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
         if (xhr.status === 200) {
             loadMappings();
             showStatus('<%:Mapping deleted successfully!%>', 'success');
+        } else {
+            showStatus('<%:Failed to delete mapping%>', 'error');
         }
     };
-    xhr.send('idx=' + idx);
+    xhr.onerror = function() {
+        showStatus('<%:Network error deleting mapping%>', 'error');
+    };
+    xhr.send('idx=' + encodeURIComponent(idx));
 }
 
 function showStatus(message, type) {

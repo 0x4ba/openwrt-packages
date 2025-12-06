@@ -5,13 +5,26 @@ function index()
         return
     end
 
-    entry({"admin", "services", "fan_control"}, call("index_page"), _("Fan Control"), 90).dependent = true
-    entry({"admin", "services", "fan_control", "get_devices"}, call("get_devices")).leaf = true
-    entry({"admin", "services", "fan_control", "get_config"}, call("get_config")).leaf = true
-    entry({"admin", "services", "fan_control", "save_config"}, call("save_config")).leaf = true
-    entry({"admin", "services", "fan_control", "list_map"}, call("list_map")).leaf = true
-    entry({"admin", "services", "fan_control", "add_map"}, call("add_map")).leaf = true
-    entry({"admin", "services", "fan_control", "delete_map"}, call("delete_map")).leaf = true
+    local page = entry({"admin", "services", "fan_control"}, call("index_page"), _("Fan Control"), 90)
+    page.dependent = true
+
+    local get_dev = entry({"admin", "services", "fan_control", "get_devices"}, call("get_devices"))
+    get_dev.leaf = true
+
+    local get_cfg = entry({"admin", "services", "fan_control", "get_config"}, call("get_config"))
+    get_cfg.leaf = true
+
+    local save_cfg = entry({"admin", "services", "fan_control", "save_config"}, call("save_config"))
+    save_cfg.leaf = true
+
+    local list = entry({"admin", "services", "fan_control", "list_map"}, call("list_map"))
+    list.leaf = true
+
+    local add = entry({"admin", "services", "fan_control", "add_map"}, call("add_map"))
+    add.leaf = true
+
+    local del = entry({"admin", "services", "fan_control", "delete_map"}, call("delete_map"))
+    del.leaf = true
 end
 
 function index_page()
@@ -42,10 +55,12 @@ function get_devices()
 
                 -- Check for temperature sensors
                 local has_temp = false
-                for subfile in fs.dir(path) do
-                    if subfile:match("^temp%d+_input$") then
-                        has_temp = true
-                        break
+                if fs.access(path) then
+                    for subfile in fs.dir(path) do
+                        if subfile:match("^temp%d+_input$") then
+                            has_temp = true
+                            break
+                        end
                     end
                 end
 
@@ -55,10 +70,12 @@ function get_devices()
 
                 -- Check for PWM fans
                 local has_pwm = false
-                for subfile in fs.dir(path) do
-                    if subfile:match("^pwm%d+$") and not subfile:match("_enable$") then
-                        has_pwm = true
-                        break
+                if fs.access(path) then
+                    for subfile in fs.dir(path) do
+                        if subfile:match("^pwm%d+$") and not subfile:match("_enable$") then
+                            has_pwm = true
+                            break
+                        end
                     end
                 end
 
@@ -70,7 +87,7 @@ function get_devices()
     end
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify({sensors = sensors, fans = fans}))
+    luci.http.write_json({sensors = sensors, fans = fans})
 end
 
 function get_config()
@@ -84,7 +101,7 @@ function get_config()
     }
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify(config))
+    luci.http.write_json(config)
 end
 
 function save_config()
@@ -104,7 +121,7 @@ function save_config()
     os.execute("/etc/init.d/fan_control restart >/dev/null 2>&1 &")
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify({success = true}))
+    luci.http.write_json({success = true})
 end
 
 function list_map()
@@ -126,7 +143,7 @@ function list_map()
     end)
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify({maps = maps}))
+    luci.http.write_json({maps = maps})
 end
 
 function add_map()
@@ -137,7 +154,7 @@ function add_map()
 
     if not temp or not speed then
         luci.http.prepare_content("application/json")
-        luci.http.write(json.stringify({success = false, error = "Missing temperature or speed"}))
+        luci.http.write_json({success = false, error = "Missing temperature or speed"})
         return
     end
 
@@ -146,7 +163,7 @@ function add_map()
 
     if not temp or not speed or temp < 0 or speed < 0 or speed > 255 then
         luci.http.prepare_content("application/json")
-        luci.http.write(json.stringify({success = false, error = "Invalid values"}))
+        luci.http.write_json({success = false, error = "Invalid values"})
         return
     end
 
@@ -162,7 +179,7 @@ function add_map()
     os.execute("/etc/init.d/fan_control reload >/dev/null 2>&1 &")
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify({success = true, id = id}))
+    luci.http.write_json({success = true, id = id})
 end
 
 function delete_map()
@@ -172,7 +189,7 @@ function delete_map()
 
     if not idx then
         luci.http.prepare_content("application/json")
-        luci.http.write(json.stringify({success = false, error = "Missing index"}))
+        luci.http.write_json({success = false, error = "Missing index"})
         return
     end
 
@@ -183,7 +200,7 @@ function delete_map()
     os.execute("/etc/init.d/fan_control reload >/dev/null 2>&1 &")
 
     luci.http.prepare_content("application/json")
-    luci.http.write(json.stringify({success = true}))
+    luci.http.write_json({success = true})
 end
 
 
