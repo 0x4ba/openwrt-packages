@@ -11,9 +11,6 @@ PKG_RELEASE:=4
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=Antigravity <antigravity@google.com>
 
-# Set executable permissions for scripts
-PKG_FILE_MODES:=/etc/init.d/fan_control:0755 /usr/bin/fan_control.sh:0755
-
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # Override install to include root directory files
