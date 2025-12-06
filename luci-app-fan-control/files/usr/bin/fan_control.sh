@@ -1,28 +1,54 @@
 #!/bin/sh
 
-CONFIG_SECTION="fan_control"
-CONFIG_FILE="/etc/config/fan_control"
+. /lib/functions.sh
 
-get_config() {
-    config_get_bool enabled $1 enabled 0
-    config_get sensor $1 sensor
-    config_get fan $1 fan
+# Global variables
+enabled=""
+sensor=""
+fan=""
+temp_maps=""
+
+# Get main configuration
+get_main_config() {
+    config_get_bool enabled "$1" enabled 0
+    config_get sensor "$1" sensor
+    config_get fan "$1" fan
 }
 
+# Collect temperature mapping entries
+get_temp_map() {
+    local temperature speed
+    config_get temperature "$1" temperature
+    config_get speed "$1" speed
+
+    if [ -n "$temperature" ] && [ -n "$speed" ]; then
+        temp_maps="$temp_maps$temperature:$speed "
+    fi
+}
+
+# Load configuration
 load_config() {
+    enabled=""
+    sensor=""
+    fan=""
+    temp_maps=""
+
     config_load fan_control
-    config_foreach get_config fan_control
+    config_foreach get_main_config fan_control
+    config_foreach get_temp_map map
 }
 
+# Set fan speed via PWM
 set_fan_speed() {
     local pwm_path="$1"
     local speed="$2"
-    
+
     if [ -w "$pwm_path" ]; then
         echo "$speed" > "$pwm_path"
     fi
 }
 
+# Read temperature from sensor
 read_temp() {
     local temp_path="$1"
     if [ -r "$temp_path" ]; then
@@ -32,61 +58,89 @@ read_temp() {
     fi
 }
 
+# Find first temp*_input file in sensor directory
+find_temp_input() {
+    local sensor_dir="$1"
+    local temp_file
+
+    for file in "$sensor_dir"/temp*_input; do
+        if [ -r "$file" ]; then
+            echo "$file"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Find first pwm* file in fan directory
+find_pwm_output() {
+    local fan_dir="$1"
+    local pwm_file
+
+    for file in "$fan_dir"/pwm[0-9]*; do
+        if [ -w "$file" ]; then
+            echo "$file"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Calculate target PWM based on temperature mappings
+# Logic: Find highest temperature threshold that current temp meets or exceeds
+calculate_target_pwm() {
+    local current_temp="$1"
+    local target_pwm=0
+    local highest_matching_temp=-999
+
+    # Parse temperature mappings (format: "temp1:speed1 temp2:speed2 ...")
+    for mapping in $temp_maps; do
+        local temp="${mapping%%:*}"
+        local speed="${mapping##*:}"
+
+        # If current temp >= threshold temp, and this threshold is higher than previous matches
+        if [ "$current_temp" -ge "$temp" ] && [ "$temp" -ge "$highest_matching_temp" ]; then
+            highest_matching_temp="$temp"
+            target_pwm="$speed"
+        fi
+    done
+
+    echo "$target_pwm"
+}
+
+# Main control loop
 main_loop() {
     while true; do
         load_config
-        
+
         if [ "$enabled" -eq 1 ] && [ -n "$sensor" ] && [ -n "$fan" ]; then
-            # Construct paths based on selection
-            # Assuming sensor is like "hwmon0" and we want "temp1_input"
-            # And fan is like "hwmon1" and we want "pwm1"
-            # This logic might need adjustment based on exact sysfs structure
-            
-            # For simplicity, let's assume the user selects the full path or we construct it
-            # But the requirement says "scan /sys/class/hwmon subdir, get data from `name` file"
-            # So the config probably stores the 'name' or the hwmon path.
-            # Let's assume the config stores the full path to the hwmon dir for now, 
-            # or we find it by name.
-            
-            # Actually, let's look at the requirement: "add a select component for name list"
-            # So the value stored is likely the directory name or the content of the 'name' file.
-            # Let's assume we store the directory path (e.g., /sys/class/hwmon/hwmon0) 
-            # mapped from the friendly name in LuCI.
-            
-            # Wait, LuCI model will likely store the value selected.
-            # Let's assume the value stored is the absolute path to the hwmon directory.
-            
-            TEMP_INPUT="$sensor/temp1_input"
-            PWM_OUTPUT="$fan/pwm1"
-            
-            if [ -f "$TEMP_INPUT" ]; then
-                CURRENT_TEMP=$(read_temp "$TEMP_INPUT")
-                # Convert millidegrees to degrees
-                CURRENT_TEMP_C=$((CURRENT_TEMP / 1000))
-                
-                # Simple logic: 
-                # < 40C: 0 (Off)
-                # 40-50C: 100 (Low)
-                # 50-60C: 150 (Medium)
-                # > 60C: 255 (High)
-                
-                TARGET_PWM=0
-                if [ "$CURRENT_TEMP_C" -ge 60 ]; then
-                    TARGET_PWM=255
-                elif [ "$CURRENT_TEMP_C" -ge 50 ]; then
-                    TARGET_PWM=150
-                elif [ "$CURRENT_TEMP_C" -ge 40 ]; then
-                    TARGET_PWM=100
-                fi
-                
-                set_fan_speed "$PWM_OUTPUT" "$TARGET_PWM"
+            # Find temperature input file
+            TEMP_INPUT=$(find_temp_input "$sensor")
+            if [ -z "$TEMP_INPUT" ]; then
+                sleep 5
+                continue
             fi
+
+            # Find PWM output file
+            PWM_OUTPUT=$(find_pwm_output "$fan")
+            if [ -z "$PWM_OUTPUT" ]; then
+                sleep 5
+                continue
+            fi
+
+            # Read current temperature
+            CURRENT_TEMP_MILLI=$(read_temp "$TEMP_INPUT")
+            CURRENT_TEMP_C=$((CURRENT_TEMP_MILLI / 1000))
+
+            # Calculate target PWM based on mappings
+            TARGET_PWM=$(calculate_target_pwm "$CURRENT_TEMP_C")
+
+            # Set fan speed
+            set_fan_speed "$PWM_OUTPUT" "$TARGET_PWM"
         fi
-        
+
         sleep 5
     done
 }
-
-. /lib/functions.sh
 
 main_loop
