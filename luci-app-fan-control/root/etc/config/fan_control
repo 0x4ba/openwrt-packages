@@ -1,20 +1,41 @@
-config fan_control 'fan_control'
+# 风扇控制组配置 - 支持多组控制
+# fan_type: pwm (PWM风扇) 或 dc (直流风扇)
+# 每组包含一个温度传感器和一个风扇控制
+
+config fan_group 'group1'
 	option enabled '0'
+	option name 'PWM Fan 1'
+	option fan_type 'pwm'
 	option sensor ''
 	option fan ''
 
-config map 'map_40'
+# PWM风扇的温度映射表（多个温度档位）
+config map
+	option group 'group1'
 	option temperature '40'
 	option speed '100'
 
-config map 'map_50'
+config map
+	option group 'group1'
 	option temperature '50'
 	option speed '150'
 
-config map 'map_60'
+config map
+	option group 'group1'
 	option temperature '60'
 	option speed '200'
 
-config map 'map_70'
+config map
+	option group 'group1'
 	option temperature '70'
 	option speed '255'
+
+# 直流风扇组示例（GPIO控制）
+# config fan_group 'group2'
+# 	option enabled '0'
+# 	option name 'DC Fan 1'
+# 	option fan_type 'dc'
+# 	option sensor ''
+# 	option gpio ''
+# 	option gpio_active_high '1'
+# 	option trigger_temp '50'

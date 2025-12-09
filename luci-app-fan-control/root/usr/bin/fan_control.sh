@@ -16,47 +16,114 @@ log_debug() { [ "$LOG_LEVEL" -ge 4 ] && logger -t "$LOG_TAG" -p daemon.debug "$1
 # ========================================
 # 全局变量
 # ========================================
-enabled=""
-sensor=""
-fan=""
-temp_maps=""
+declare -A FAN_GROUPS
+declare -A TEMP_MAPS
 
 # ========================================
 # UCI 配置加载
 # ========================================
-get_main_config() {
-	config_get_bool enabled "$1" enabled 0
-	config_get sensor "$1" sensor
-	config_get fan "$1" fan
+load_fan_group() {
+	local section="$1"
+	local enabled name fan_type sensor fan gpio gpio_active_high trigger_temp
+
+	config_get_bool enabled "$section" enabled 0
+	config_get name "$section" name "$section"
+	config_get fan_type "$section" fan_type "pwm"
+	config_get sensor "$section" sensor
+	config_get fan "$section" fan
+	config_get gpio "$section" gpio
+	config_get gpio_active_high "$section" gpio_active_high "1"
+	config_get trigger_temp "$section" trigger_temp "50"
+
+	if [ "$enabled" -eq 1 ]; then
+		FAN_GROUPS["${section}_enabled"]="$enabled"
+		FAN_GROUPS["${section}_name"]="$name"
+		FAN_GROUPS["${section}_type"]="$fan_type"
+		FAN_GROUPS["${section}_sensor"]="$sensor"
+		FAN_GROUPS["${section}_fan"]="$fan"
+		FAN_GROUPS["${section}_gpio"]="$gpio"
+		FAN_GROUPS["${section}_gpio_active_high"]="$gpio_active_high"
+		FAN_GROUPS["${section}_trigger_temp"]="$trigger_temp"
+
+		log_info "Loaded group: $name (type=$fan_type, sensor=$sensor)"
+	fi
 }
 
-get_temp_map() {
-	local temperature speed
-	config_get temperature "$1" temperature
-	config_get speed "$1" speed
+load_temp_map() {
+	local section="$1"
+	local group temperature speed
 
-	if [ -n "$temperature" ] && [ -n "$speed" ]; then
-		temp_maps="$temp_maps$temperature:$speed "
+	config_get group "$section" group
+	config_get temperature "$section" temperature
+	config_get speed "$section" speed
+
+	if [ -n "$group" ] && [ -n "$temperature" ] && [ -n "$speed" ]; then
+		local current="${TEMP_MAPS[$group]}"
+		if [ -z "$current" ]; then
+			TEMP_MAPS["$group"]="$temperature:$speed"
+		else
+			TEMP_MAPS["$group"]="$current $temperature:$speed"
+		fi
+		log_debug "Loaded mapping for $group: $temperature°C -> PWM $speed"
 	fi
 }
 
 load_config() {
-	enabled=""
-	sensor=""
-	fan=""
-	temp_maps=""
+	# 清空数组
+	FAN_GROUPS=()
+	TEMP_MAPS=()
 
 	config_load fan_control
-	config_foreach get_main_config fan_control
-	config_foreach get_temp_map map
+	config_foreach load_fan_group fan_group
+	config_foreach load_temp_map map
 
-	log_info "Configuration loaded: enabled=$enabled, sensor=$sensor, fan=$fan"
-	log_debug "Temperature mappings: $temp_maps"
+	log_info "Configuration loaded, ${#FAN_GROUPS[@]} parameters, ${#TEMP_MAPS[@]} mappings"
 }
 
 # ========================================
 # 硬件操作函数
 # ========================================
+
+# GPIO 操作
+gpio_export() {
+	local gpio_num="$1"
+	local gpio_path="/sys/class/gpio/gpio${gpio_num}"
+
+	if [ ! -d "$gpio_path" ]; then
+		echo "$gpio_num" > /sys/class/gpio/export 2>/dev/null
+		sleep 0.1
+	fi
+
+	if [ -d "$gpio_path" ]; then
+		echo "out" > "${gpio_path}/direction" 2>/dev/null
+		log_info "GPIO $gpio_num exported and set to output"
+		return 0
+	else
+		log_error "Failed to export GPIO $gpio_num"
+		return 1
+	fi
+}
+
+gpio_set_value() {
+	local gpio_num="$1"
+	local value="$2"
+	local gpio_path="/sys/class/gpio/gpio${gpio_num}/value"
+
+	if [ -w "$gpio_path" ]; then
+		echo "$value" > "$gpio_path" 2>/dev/null
+		log_debug "GPIO $gpio_num set to $value"
+		return 0
+	else
+		log_error "Cannot write to GPIO $gpio_num"
+		return 1
+	fi
+}
+
+gpio_unexport() {
+	local gpio_num="$1"
+	echo "$gpio_num" > /sys/class/gpio/unexport 2>/dev/null
+}
+
 find_temp_input() {
 	local sensor_dir="$1"
 	local file
@@ -146,6 +213,7 @@ set_fan_speed() {
 # ========================================
 calculate_target_pwm() {
 	local current_temp="$1"
+	local temp_maps="$2"
 	local target_pwm=0
 	local highest_matching_temp=-999
 
@@ -166,6 +234,90 @@ calculate_target_pwm() {
 # ========================================
 # 主控制循环
 # ========================================
+control_pwm_fan() {
+	local group_id="$1"
+	local sensor="${FAN_GROUPS[${group_id}_sensor]}"
+	local fan="${FAN_GROUPS[${group_id}_fan]}"
+	local name="${FAN_GROUPS[${group_id}_name]}"
+	local temp_maps="${TEMP_MAPS[$group_id]}"
+
+	if [ -z "$sensor" ] || [ -z "$fan" ]; then
+		log_warn "[$name] Sensor or fan path not configured"
+		return 1
+	fi
+
+	# 查找温度输入文件
+	local temp_input=$(find_temp_input "$sensor")
+	if [ -z "$temp_input" ]; then
+		return 1
+	fi
+
+	# 查找 PWM 输出文件
+	local pwm_output=$(find_pwm_output "$fan")
+	if [ -z "$pwm_output" ]; then
+		return 1
+	fi
+
+	# 读取当前温度
+	local current_temp_milli=$(read_temp "$temp_input")
+	local current_temp_c=$((current_temp_milli / 1000))
+
+	log_debug "[$name] Current temperature: ${current_temp_c}°C"
+
+	# 计算目标 PWM
+	local target_pwm=$(calculate_target_pwm "$current_temp_c" "$temp_maps")
+
+	log_info "[$name] Temperature: ${current_temp_c}°C -> PWM: $target_pwm"
+
+	# 设置风扇速度
+	set_fan_speed "$pwm_output" "$target_pwm"
+}
+
+control_dc_fan() {
+	local group_id="$1"
+	local sensor="${FAN_GROUPS[${group_id}_sensor]}"
+	local gpio="${FAN_GROUPS[${group_id}_gpio]}"
+	local gpio_active_high="${FAN_GROUPS[${group_id}_gpio_active_high]}"
+	local trigger_temp="${FAN_GROUPS[${group_id}_trigger_temp]}"
+	local name="${FAN_GROUPS[${group_id}_name]}"
+
+	if [ -z "$sensor" ] || [ -z "$gpio" ]; then
+		log_warn "[$name] Sensor or GPIO not configured"
+		return 1
+	fi
+
+	# 确保 GPIO 已导出
+	gpio_export "$gpio"
+
+	# 查找温度输入文件
+	local temp_input=$(find_temp_input "$sensor")
+	if [ -z "$temp_input" ]; then
+		return 1
+	fi
+
+	# 读取当前温度
+	local current_temp_milli=$(read_temp "$temp_input")
+	local current_temp_c=$((current_temp_milli / 1000))
+
+	log_debug "[$name] Current temperature: ${current_temp_c}°C, trigger: ${trigger_temp}°C"
+
+	# 判断是否需要开启风扇
+	local fan_state=0
+	if [ "$current_temp_c" -ge "$trigger_temp" ]; then
+		fan_state=1
+	fi
+
+	# 根据有效电平设置 GPIO
+	local gpio_value=$fan_state
+	if [ "$gpio_active_high" -eq 0 ]; then
+		gpio_value=$((1 - fan_state))
+	fi
+
+	log_info "[$name] Temperature: ${current_temp_c}°C -> Fan: $([ $fan_state -eq 1 ] && echo 'ON' || echo 'OFF')"
+
+	gpio_set_value "$gpio" "$gpio_value"
+}
+
 main_loop() {
 	log_info "Fan control service started"
 
@@ -182,48 +334,45 @@ main_loop() {
 		return 1
 	fi
 
+	# 获取所有启用的组ID
+	local enabled_groups=""
+
 	while true; do
 		load_config
 
-		if [ "$enabled" -ne 1 ]; then
-			log_debug "Fan control disabled, sleeping"
+		# 找出所有启用的组
+		enabled_groups=""
+		for key in "${!FAN_GROUPS[@]}"; do
+			if [[ "$key" =~ _enabled$ ]]; then
+				local group_id="${key%_enabled}"
+				if [ "${FAN_GROUPS[$key]}" -eq 1 ]; then
+					enabled_groups="$enabled_groups $group_id"
+				fi
+			fi
+		done
+
+		if [ -z "$enabled_groups" ]; then
+			log_debug "No fan groups enabled, sleeping"
 			sleep 10
 			continue
 		fi
 
-		if [ -z "$sensor" ] || [ -z "$fan" ]; then
-			log_warn "Sensor or fan path not configured, sleeping"
-			sleep 10
-			continue
-		fi
+		# 控制每个启用的组
+		for group_id in $enabled_groups; do
+			local fan_type="${FAN_GROUPS[${group_id}_type]}"
 
-		# 查找温度输入文件
-		temp_input=$(find_temp_input "$sensor")
-		if [ -z "$temp_input" ]; then
-			sleep 5
-			continue
-		fi
-
-		# 查找 PWM 输出文件
-		pwm_output=$(find_pwm_output "$fan")
-		if [ -z "$pwm_output" ]; then
-			sleep 5
-			continue
-		fi
-
-		# 读取当前温度
-		current_temp_milli=$(read_temp "$temp_input")
-		current_temp_c=$((current_temp_milli / 1000))
-
-		log_debug "Current temperature: ${current_temp_c}°C"
-
-		# 计算目标 PWM
-		target_pwm=$(calculate_target_pwm "$current_temp_c")
-
-		log_info "Temperature: ${current_temp_c}°C -> PWM: $target_pwm"
-
-		# 设置风扇速度
-		set_fan_speed "$pwm_output" "$target_pwm"
+			case "$fan_type" in
+				pwm)
+					control_pwm_fan "$group_id"
+					;;
+				dc)
+					control_dc_fan "$group_id"
+					;;
+				*)
+					log_warn "Unknown fan type: $fan_type for group $group_id"
+					;;
+			esac
+		done
 
 		sleep 5
 	done
