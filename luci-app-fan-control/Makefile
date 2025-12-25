@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI Fan Control
-LUCI_DEPENDS:=+luci-base +luci-mod-admin-full +uci +luci-lib-jsonc +luci-lib-nixio +luci-lib-ip +kmod-hwmon-pwmfan +kmod-hwmon-gpiofan +kmod-hwmon-gsc
+LUCI_DEPENDS:=+luci-base +luci-mod-admin-full +uci +luci-lib-jsonc +luci-lib-nixio +luci-lib-ip +kmod-hwmon-pwmfan +kmod-hwmon-gpiofan +kmod-hwmon-gsc +luci-compat
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-fan-control
