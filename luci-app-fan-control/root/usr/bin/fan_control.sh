@@ -154,7 +154,13 @@ process_control_group() {
 
 	config_get_bool enabled "$section" enabled 0
 	config_get sensor "$section" sensor
-	config_get fans "$section" fan
+	
+	# 支持 list fan (DynamicList) 和 option fan (MultiValue space-separated)
+	fans=""
+	append_fan() {
+		fans="$fans $1"
+	}
+	config_list_foreach "$section" fan append_fan
 
 	if [ "$enabled" -ne 1 ]; then
 		return

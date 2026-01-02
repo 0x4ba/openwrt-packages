@@ -146,10 +146,11 @@ end
 
 -- 风扇选择
 -- 风扇选择 (支持 1 对 N)
-fan = s:option(MultiValue, "fan", translate("PWM Fan Control"))
+-- 风扇选择 (支持 1 对 N)
+fan = s:option(DynamicList, "fan", translate("PWM Fan Control"))
 fan.rmempty = false
 fan.description = translate("Select one or more fan outputs to control")
-fan.delimiter = " "   -- UCI list 存储方式
+-- DynamicList naturally uses UCI list, no delimiter needed
 
 if next(fans) == nil then
 	fan:value("", translate("-- No PWM fans found --"))
