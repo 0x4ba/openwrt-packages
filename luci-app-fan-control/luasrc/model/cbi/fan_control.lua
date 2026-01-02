@@ -7,11 +7,69 @@ m = Map("fan_control", translate("Fan Control"),
 	          "according to configured thresholds."))
 
 -- ========================================
+-- 状态显示栏
+-- ========================================
+local sys = require "luci.sys"
+
+local status_section = m:section(SimpleSection, translate("Current Status"))
+local status_msg = ""
+
+local hwmon_dir = "/sys/class/hwmon"
+if fs.access(hwmon_dir) then
+	for file in fs.dir(hwmon_dir) do
+		if file:match("^hwmon%d+$") then
+			local path = hwmon_dir .. "/" .. file
+			local name_file = path .. "/name"
+			local device_name = "Unknown"
+
+			if fs.access(name_file) then
+				local name_content = fs.readfile(name_file)
+				if name_content then
+					device_name = name_content:gsub("%s+", "")
+				end
+			end
+
+			-- 读取当前温度
+			local temp_input_file = nil
+			if fs.access(path) then
+				for subfile in fs.dir(path) do
+					if subfile:match("^temp%d+_input$") then
+						temp_input_file = path .. "/" .. subfile
+						break
+					end
+				end
+			end
+
+			if temp_input_file then
+				local temp_raw = fs.readfile(temp_input_file)
+				local temp_val = tonumber(temp_raw)
+				if temp_val then
+					status_msg = status_msg .. string.format("<b>%s (%s):</b> %.1f°C<br/>", 
+						device_name, file, temp_val / 1000)
+				end
+			end
+		end
+	end
+end
+
+if status_msg == "" then
+	status_msg = translate("No sensors detected.")
+end
+
+local st = status_section:option(DummyValue, "_status")
+st.rawhtml = true
+st.default = status_msg
+
+-- ========================================
 -- 主配置区域
 -- ========================================
-s = m:section(TypedSection, "fan_control", translate("Control Settings"))
+-- ========================================
+-- 主配置区域 (支持多组)
+-- ========================================
+s = m:section(TypedSection, "fan_control", translate("Control Groups"))
 s.anonymous = true
-s.addremove = false
+s.addremove = true
+s.template = "cbi/tblsection" -- 使用表格视图更紧凑，或者保持默认
 
 -- 启用开关
 e = s:option(Flag, "enabled", translate("Enable Fan Control"))
@@ -87,9 +145,12 @@ else
 end
 
 -- 风扇选择
-fan = s:option(ListValue, "fan", translate("PWM Fan Control"))
+-- 风扇选择 (支持 1 对 N)
+fan = s:option(MultiValue, "fan", translate("PWM Fan Control"))
 fan.rmempty = false
-fan.description = translate("Select the hwmon device with PWM control for the fan")
+fan.description = translate("Select one or more fan outputs to control")
+fan.widget = "checkbox" -- 强制显示为 checkbox 列表
+fan.delimiter = " "   -- UCI list 存储方式
 
 if next(fans) == nil then
 	fan:value("", translate("-- No PWM fans found --"))
