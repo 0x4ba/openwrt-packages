@@ -149,7 +149,6 @@ end
 fan = s:option(MultiValue, "fan", translate("PWM Fan Control"))
 fan.rmempty = false
 fan.description = translate("Select one or more fan outputs to control")
-fan.widget = "checkbox" -- 强制显示为 checkbox 列表
 fan.delimiter = " "   -- UCI list 存储方式
 
 if next(fans) == nil then
